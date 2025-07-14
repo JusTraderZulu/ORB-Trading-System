@@ -1,0 +1,126 @@
+# Assets configuration for ORB system
+# Core basket and screener filters
+
+# Core Trading Universe
+core_basket:
+  - "AAPL"
+  - "MSFT"
+  - "GOOGL"
+  - "AMZN"
+  - "TSLA"
+  - "META"
+  - "NVDA"
+  - "NFLX"
+  - "AMD"
+  - "INTC"
+  - "CRM"
+  - "ADBE"
+  - "PYPL"
+  - "SHOP"
+  - "ROKU"
+  - "ZM"
+  - "DOCU"
+  - "SNOW"
+  - "PLTR"
+  - "UBER"
+
+# Screener Filters
+screener:
+  # Market Cap Filter
+  market_cap:
+    min: 1000000000  # $1B minimum
+    max: null
+    
+  # Price Filter
+  price:
+    min: 10.0
+    max: 1000.0
+    
+  # Volume Filter
+  volume:
+    min_avg_volume: 1000000  # 1M shares average daily volume
+    min_dollar_volume: 10000000  # $10M daily dollar volume
+    
+  # Volatility Filter
+  volatility:
+    min_atr_percent: 0.02  # 2% minimum ATR
+    max_atr_percent: 0.15  # 15% maximum ATR
+    
+  # Sector/Industry Filters
+  sectors:
+    include:
+      - "Technology"
+      - "Consumer Discretionary"
+      - "Healthcare"
+      - "Financials"
+      - "Communication Services"
+    exclude:
+      - "Utilities"
+      - "Real Estate"
+      
+  # Exchange Filters
+  exchanges:
+    include:
+      - "NASDAQ"
+      - "NYSE"
+      - "BATS"
+    exclude:
+      - "PINK"
+      - "OTCBB"
+
+# Barchart Screener Settings
+barchart_screener:
+  # Screener ID from Barchart
+  screener_id: "stocks-by-price-percent-change"
+  
+  # Filter Parameters
+  filters:
+    priceChange:
+      min: -0.05  # -5%
+      max: 0.05   # +5%
+    volume:
+      min: 500000
+    marketCap:
+      min: 1000000000
+      
+  # Result Limits
+  max_results: 100
+  
+  # Update Frequency
+  update_frequency: "daily"
+  update_time: "09:05"  # ET
+
+# Risk Management
+risk_management:
+  max_position_size: 0.02  # 2% of portfolio per position
+  max_sector_exposure: 0.20  # 20% max per sector
+  max_daily_trades: 10
+  max_portfolio_leverage: 1.0
+  
+  # Stop Loss / Take Profit
+  stop_loss_percent: 0.02  # 2%
+  take_profit_percent: 0.06  # 6%
+  
+  # Position Sizing
+  position_sizing:
+    method: "volatility_adjusted"  # or "equal_weight", "market_cap_weighted"
+    volatility_lookback: 20  # days
+    max_volatility_multiple: 2.0
+
+# Exclusions
+exclusions:
+  # Permanently excluded symbols
+  symbols:
+    - "SQQQ"  # Inverse ETFs
+    - "TQQQ"  # Leveraged ETFs
+    - "SPXS"
+    - "UPRO"
+    
+  # Excluded patterns
+  patterns:
+    - "*3X*"   # 3X leveraged
+    - "*-1X*"  # Inverse
+    - "*VIX*"  # VIX products
+    
+  # Excluded during earnings
+  earnings_blackout_days: 1  # days before/after earnings 

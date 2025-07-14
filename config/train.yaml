@@ -1,0 +1,78 @@
+# Training configuration for ORB system
+# Model parameters and hyperparameter search spaces
+
+# Training Parameters
+training:
+  train_window: 250  # sessions
+  retrain_gap: 40    # sessions
+  validation_split: 0.2
+  test_split: 0.1
+  cv_folds: 5
+  random_state: 42
+
+# Performance Thresholds
+thresholds:
+  precision_floor: 0.55
+  recall_floor: 0.45
+  sharpe_floor: 0.7
+  max_drawdown_threshold: 0.15
+
+# Optuna Configuration
+optuna:
+  n_trials: 100
+  timeout: 3600  # seconds
+  sampler: "TPESampler"
+  pruner: "MedianPruner"
+  direction: "maximize"
+  study_name: "orb_optimization"
+
+# Model Search Spaces
+models:
+  lgbm:
+    n_estimators: [100, 500, 1000]
+    max_depth: [3, 5, 7, 10]
+    learning_rate: [0.01, 0.1, 0.2]
+    num_leaves: [31, 62, 127]
+    min_child_samples: [10, 20, 50]
+    subsample: [0.8, 0.9, 1.0]
+    colsample_bytree: [0.8, 0.9, 1.0]
+    reg_alpha: [0.0, 0.1, 0.5]
+    reg_lambda: [0.0, 0.1, 0.5]
+    class_weight: ["balanced", null]
+    
+  tcn:
+    num_channels: [[32, 64, 128], [64, 128, 256]]
+    kernel_size: [3, 5, 7]
+    dropout: [0.1, 0.2, 0.3]
+    learning_rate: [0.001, 0.01, 0.1]
+    batch_size: [32, 64, 128]
+    num_epochs: [50, 100, 200]
+    
+  meta_ensemble:
+    meta_model: ["logistic", "lightgbm"]
+    stack_method: ["cv", "holdout"]
+    use_probas: [true, false]
+
+# Feature Engineering
+features:
+  lag_periods: [1, 3, 5, 10]
+  rolling_windows: [5, 10, 20]
+  technical_indicators:
+    - "atr"
+    - "ema"
+    - "rsi"
+    - "bollinger"
+    - "vwap"
+  market_features:
+    - "time_of_day"
+    - "day_of_week"
+    - "volume_profile"
+    - "volatility_regime"
+
+# Walk-Forward Configuration
+walkforward:
+  start_date: "2020-01-01"
+  end_date: null  # Current date
+  step_size: 5    # sessions
+  min_train_size: 100
+  max_train_size: 500 

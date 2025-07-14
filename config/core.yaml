@@ -1,0 +1,41 @@
+# Core configuration for ORB system
+# API keys and data paths
+
+# API Configuration
+polygon:
+  api_key: ${POLYGON_API_KEY}  # Set via environment variable
+  base_url: "https://api.polygon.io"
+  max_requests_per_minute: 5
+
+barchart:
+  api_key: ${BARCHART_API_KEY}  # Set via environment variable
+  base_url: "https://marketdata.websol.barchart.com"
+  screener_url: "https://core-api.barchart.com/v1/quotes/get"
+
+# Data Paths
+data:
+  raw_dir: "data/raw"
+  minute_dir: "data/minute"
+  features_dir: "data/feat"
+  models_dir: "models"
+  blotters_dir: "blotters"
+
+# MLflow Configuration
+mlflow:
+  tracking_uri: "mlruns"
+  experiment_name: "orb_trading_system"
+  artifact_location: "mlruns"
+
+# Market Configuration
+market:
+  timezone: "America/New_York"
+  trading_start: "09:30"
+  trading_end: "16:00"
+  opening_range_end: "10:00"
+  exit_time: "15:55"
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/orb_system.log" 
