@@ -24,6 +24,7 @@ class FeatureBuilder(LoggingMixin):
     
     Creates features including:
     - Opening range features (high, low, range, volume)
+    - ORB signal detection (breakout, direction, timing, strength)
     - Technical indicators (ATR, EMA, VWAP)
     - Forward return labels
     """
@@ -99,19 +100,23 @@ class FeatureBuilder(LoggingMixin):
             or_features = self._calculate_opening_range_features(day_data)
             features.update(or_features)
             
-            # 2. Technical Indicators
+            # 2. ORB Signal Detection
+            orb_signal_features = self._calculate_orb_signals(day_data, or_features)
+            features.update(orb_signal_features)
+            
+            # 3. Technical Indicators
             tech_features = self._calculate_technical_features(symbol, date, minute_df)
             features.update(tech_features)
             
-            # 3. VWAP Deviation
+            # 4. VWAP Deviation
             vwap_features = self._calculate_vwap_features(day_data)
             features.update(vwap_features)
             
-            # 4. Forward Return Label
+            # 5. Forward Return Label
             label_features = self._calculate_forward_return_label(day_data)
             features.update(label_features)
             
-            # 5. Additional Context Features
+            # 6. Additional Context Features
             context_features = self._calculate_context_features(day_data)
             features.update(context_features)
             
@@ -149,6 +154,158 @@ class FeatureBuilder(LoggingMixin):
         features['or_range'] = float(features['or_high'] - features['or_low'])
         features['or_vol'] = float(or_data['volume'].sum())
             
+        return features
+    
+    def _calculate_orb_signals(self, day_data: pd.DataFrame, or_features: Dict[str, float]) -> Dict[str, float]:
+        """
+        Calculate ORB breakout signals and validation.
+        
+        Detects actual ORB signals after the opening range period ends:
+        - Breakout detection (above or_high, below or_low)
+        - Breakout direction and timing
+        - Breakout strength and volume confirmation
+        
+        Args:
+            day_data: Minute-level data for the trading day
+            or_features: Previously calculated opening range features
+            
+        Returns:
+            Dictionary with ORB signal features
+        """
+        features = {}
+        
+        # Extract OR levels from calculated features
+        or_high = or_features.get('or_high', np.nan)
+        or_low = or_features.get('or_low', np.nan)
+        or_vol = or_features.get('or_vol', 0)
+        
+        if pd.isna(or_high) or pd.isna(or_low) or day_data.empty:
+            return {
+                'orb_breakout': 0,
+                'orb_direction': 0,
+                'orb_timing_minutes': np.nan,
+                'orb_strength_pct': 0.0,
+                'orb_volume_confirm': 0,
+                'orb_failed_breakout': 0,
+                'orb_max_extension_pct': 0.0
+            }
+        
+        # Get post-OR data (after opening range ends)
+        post_or_mask = day_data['timestamp'].dt.time > self.opening_range_end_time
+        post_or_data = day_data[post_or_mask].copy()
+        
+        if post_or_data.empty:
+            return {
+                'orb_breakout': 0,
+                'orb_direction': 0,
+                'orb_timing_minutes': np.nan,
+                'orb_strength_pct': 0.0,
+                'orb_volume_confirm': 0,
+                'orb_failed_breakout': 0,
+                'orb_max_extension_pct': 0.0
+            }
+        
+        # Initialize features
+        features['orb_breakout'] = 0
+        features['orb_direction'] = 0  # 1 = bullish (above OR), -1 = bearish (below OR)
+        features['orb_timing_minutes'] = np.nan
+        features['orb_strength_pct'] = 0.0
+        features['orb_volume_confirm'] = 0
+        features['orb_failed_breakout'] = 0
+        features['orb_max_extension_pct'] = 0.0
+        
+        # Calculate average OR volume per minute for comparison
+        or_mask = day_data['timestamp'].dt.time <= self.opening_range_end_time
+        or_data = day_data[or_mask]
+        avg_or_volume = or_vol / len(or_data) if len(or_data) > 0 else 1
+        
+        # Detect breakouts
+        bullish_breakout = None  # First bar breaking above or_high
+        bearish_breakout = None  # First bar breaking below or_low
+        
+        for idx, row in post_or_data.iterrows():
+            # Check for bullish breakout (high > or_high)
+            if bullish_breakout is None and row['high'] > or_high:
+                bullish_breakout = row
+                
+            # Check for bearish breakout (low < or_low)  
+            if bearish_breakout is None and row['low'] < or_low:
+                bearish_breakout = row
+                
+            # Stop after finding first breakout in either direction
+            if bullish_breakout is not None or bearish_breakout is not None:
+                break
+        
+        # Determine which breakout occurred first (if any)
+        first_breakout = None
+        if bullish_breakout is not None and bearish_breakout is not None:
+            # Both occurred, take the earlier one
+            if bullish_breakout['timestamp'] <= bearish_breakout['timestamp']:
+                first_breakout = ('bullish', bullish_breakout)
+            else:
+                first_breakout = ('bearish', bearish_breakout)
+        elif bullish_breakout is not None:
+            first_breakout = ('bullish', bullish_breakout)
+        elif bearish_breakout is not None:
+            first_breakout = ('bearish', bearish_breakout)
+        
+        # Calculate breakout features if breakout occurred
+        if first_breakout is not None:
+            direction, breakout_bar = first_breakout
+            
+            features['orb_breakout'] = 1
+            features['orb_direction'] = 1 if direction == 'bullish' else -1
+            
+            # Calculate timing (minutes after OR end)
+            or_end_time = pd.to_datetime(f"{breakout_bar['timestamp'].date()} {self.opening_range_end}")
+            or_end_time = or_end_time.tz_localize(day_data['timestamp'].iloc[0].tz)
+            timing_delta = breakout_bar['timestamp'] - or_end_time
+            features['orb_timing_minutes'] = float(timing_delta.total_seconds() / 60)
+            
+            # Calculate breakout strength (how far beyond OR level)
+            if direction == 'bullish':
+                breakout_price = breakout_bar['high']
+                breakout_strength = (breakout_price - or_high) / or_high
+            else:
+                breakout_price = breakout_bar['low'] 
+                breakout_strength = (or_low - breakout_price) / or_low
+                
+            features['orb_strength_pct'] = float(breakout_strength * 100)
+            
+            # Volume confirmation (breakout bar volume vs average OR volume)
+            breakout_volume = breakout_bar['volume']
+            if avg_or_volume > 0:
+                volume_ratio = breakout_volume / avg_or_volume
+                features['orb_volume_confirm'] = 1 if volume_ratio >= 1.5 else 0
+            
+            # Calculate maximum extension from OR levels
+            remaining_data = post_or_data[post_or_data['timestamp'] >= breakout_bar['timestamp']]
+            
+            if not remaining_data.empty:
+                if direction == 'bullish':
+                    max_high = remaining_data['high'].max()
+                    max_extension = (max_high - or_high) / or_high
+                else:
+                    min_low = remaining_data['low'].min()
+                    max_extension = (or_low - min_low) / or_low
+                    
+                features['orb_max_extension_pct'] = float(max_extension * 100)
+            
+            # Failed breakout detection
+            # A breakout is considered "failed" if price reverses back into the OR within 30 minutes
+            thirty_min_later = breakout_bar['timestamp'] + timedelta(minutes=30)
+            reversal_data = remaining_data[remaining_data['timestamp'] <= thirty_min_later]
+            
+            if not reversal_data.empty:
+                if direction == 'bullish':
+                    # Failed if any bar's low goes back below or_high
+                    failed = (reversal_data['low'] <= or_high).any()
+                else:
+                    # Failed if any bar's high goes back above or_low
+                    failed = (reversal_data['high'] >= or_low).any()
+                    
+                features['orb_failed_breakout'] = 1 if failed else 0
+        
         return features
     
     def _calculate_technical_features(
@@ -321,11 +478,15 @@ def build_features(sym: str, date: date, minute_df: pd.DataFrame) -> pd.Series:
     """
     Build features for a specific symbol and date.
     
-    Computes all columns listed in spec §4:
-    or_high, or_low, or_range, or_vol,
-    atr14pct, ema20_slope, vwap_dev, label y
+    Computes all features for ORB trading including:
+    - Opening Range: or_high, or_low, or_range, or_vol
+    - ORB Signals: orb_breakout, orb_direction, orb_timing_minutes, orb_strength_pct,
+                   orb_volume_confirm, orb_failed_breakout, orb_max_extension_pct
+    - Technical: atr14pct, ema20_slope, vwap_dev
+    - Labels: y (forward return > 0)
     
     Uses 09:30–10:00 window for OR fields
+    Detects breakouts after 10:00 AM
     Forward-fills higher-TF columns (ATR, EMA) from previous closes
     
     Args:
