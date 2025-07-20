@@ -65,7 +65,33 @@ All timestamps **UTC → America/New\_York** before writing Parquet.
 | `vwap_dev`                    | last close − session VWAP             |
 | *label* `y`                   | 3‑hour forward return > 0  ⇒ 1 else 0 |
 
-Forward‑fill higher‑TF columns to 1‑min index so no look‑ahead.
+### Enhanced ORB Signals (Phase 3)
+| Name                          | Formula                               |
+| ----------------------------- | ------------------------------------- |
+| `orb_breakout`                | 1 if price breaks OR levels, 0 else  |
+| `orb_direction`               | 1=bullish, -1=bearish, 0=no breakout |
+| `orb_timing_minutes`          | minutes after 10:00 when breakout    |
+| `orb_strength_pct`            | breakout distance beyond OR levels   |
+| `orb_volume_confirm`          | 1 if breakout volume ≥ 1.5x OR avg   |
+| `orb_failed_breakout`         | 1 if reversal back into OR < 30min   |
+| `orb_max_extension_pct`       | max price extension from OR level    |
+
+### Mechanical Model Features (Phase 4a) 
+| Name                          | Formula                               |
+| ----------------------------- | ------------------------------------- |
+| `brk_dir`                     | liquidity sweep direction (+1/-1/0)  |
+| `brk_stretch_pct_atr`         | sweep strength as % of ATR           |
+| `brk_minutes`                 | minutes since sweep started          |
+| `mss_flip`                    | market structure shift (+1/-1/0)     |
+| `smt_divergence`              | BTC/ETH or EUR/GBP divergence (1/0)  |
+| `ifvg_mid / size_pct`         | institutional gap midpoint & size    |
+| `sweep_count`                 | daily liquidity sweep events         |
+| `mss_count`                   | daily market structure shifts        |
+| `ifvg_count`                  | daily institutional gaps             |
+
+Forward‑fill higher‑TF columns to 1‑min index so no look‑ahead.  
+**Phase 4a**: Mechanical features analyze 08:00–17:00 UTC liquid session for crypto/FX.  
+**Total Features**: ~37 (22 core + 7 ORB signals + 13 mechanical)
 
 ---
 

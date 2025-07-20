@@ -1,10 +1,11 @@
 """
 Feature engineering module for ORB trading system.
 
-Creates opening range features, technical indicators, and forward return labels
-from minute-level market data.
+Creates opening range features, technical indicators, forward return labels,
+and advanced mechanical model features from minute-level market data.
 
 Implements build_features() and session_slice() functions per ORB spec §4.
+Enhanced with Phase 4a mechanical model features (swing, sweep, MSS, SMT, iFVG).
 """
 
 import pandas as pd
@@ -16,6 +17,10 @@ import pytz
 
 from ..utils.logging import LoggingMixin
 from ..utils.calendars import get_market_timezone, trading_days
+from .mechmodel import run_mech_pipeline
+
+# Feature version for tracking mechanical model updates
+FEATURE_VERSION = "4.1.0"  # Updated for Phase 4a mechanical model features
 
 
 class FeatureBuilder(LoggingMixin):
@@ -120,10 +125,15 @@ class FeatureBuilder(LoggingMixin):
             context_features = self._calculate_context_features(day_data)
             features.update(context_features)
             
+            # 7. Mechanical Model Features (Phase 4a)
+            mech_features = self._calculate_mechanical_features(symbol, date, minute_df)
+            features.update(mech_features)
+            
             # Add metadata
             features['symbol'] = symbol
             features['date'] = target_date
             features['timestamp'] = pd.to_datetime(f"{target_date} {self.opening_range_end}")
+            features['feature_version'] = FEATURE_VERSION
             
             return pd.Series(features)
             
@@ -438,6 +448,104 @@ class FeatureBuilder(LoggingMixin):
             features['intraday_volatility'] = 0
             
         return features
+    
+    def _calculate_mechanical_features(
+        self,
+        symbol: str,
+        date: Union[str, datetime, pd.Timestamp],
+        minute_df: pd.DataFrame
+    ) -> Dict[str, Any]:
+        """
+        Calculate mechanical model features (Phase 4a).
+        
+        Runs the complete mechanical model pipeline on the day's minute data
+        and extracts the last row's features for daily aggregation.
+        
+        Args:
+            symbol: Stock/crypto symbol
+            date: Target date
+            minute_df: Full minute-level data
+            
+        Returns:
+            Dictionary with mechanical model features
+        """
+        features = {}
+        target_date = pd.to_datetime(date).date()
+        
+        try:
+            # Filter minute data to target date
+            if 'timestamp' in minute_df.columns and len(minute_df) > 0:
+                date_mask = minute_df['timestamp'].dt.date == target_date
+                day_minute_data = minute_df[date_mask].copy()
+            else:
+                self.log_warning(f"No minute data available for mechanical features on {target_date}")
+                return self._get_empty_mechanical_features()
+            
+            if day_minute_data.empty:
+                self.log_warning(f"No minute data found for {symbol} on {target_date}")
+                return self._get_empty_mechanical_features()
+            
+            # Run mechanical model pipeline
+            mech_result = run_mech_pipeline(
+                min_df=day_minute_data,
+                smt_pair=None,  # Would need secondary data in production
+                symbol=symbol,
+                liquid_session_only=True,  # Focus on 08:00-17:00 UTC
+                swing_lookback=10,  # Smaller lookback for intraday
+                atr_window=14,
+                ifvg_lookahead=20
+            )
+            
+            if mech_result.empty:
+                return self._get_empty_mechanical_features()
+            
+            # Extract features from the last row (end-of-day summary)
+            last_row = mech_result.iloc[-1]
+            
+            # Core mechanical features
+            features['brk_dir'] = int(last_row.get('brk_dir', 0))
+            features['brk_stretch_pct_atr'] = float(last_row.get('brk_stretch_pct_atr', 0.0))
+            features['brk_minutes'] = int(last_row.get('brk_minutes', 0))
+            features['mss_flip'] = int(last_row.get('mss_flip', 0))
+            features['smt_divergence'] = int(last_row.get('smt_divergence', 0))
+            features['ifvg_mid'] = float(last_row.get('ifvg_mid', 0.0)) if not pd.isna(last_row.get('ifvg_mid')) else 0.0
+            features['ifvg_size_pct'] = float(last_row.get('ifvg_size_pct', 0.0))
+            
+            # Summary features (daily aggregations)
+            features['sweep_count'] = int(last_row.get('sweep_count', 0))
+            features['bullish_sweep_count'] = int(last_row.get('bullish_sweep_count', 0))
+            features['bearish_sweep_count'] = int(last_row.get('bearish_sweep_count', 0))
+            features['max_sweep_strength'] = float(last_row.get('max_sweep_strength', 0.0))
+            features['mss_count'] = int(last_row.get('mss_count', 0))
+            features['last_mss_direction'] = int(last_row.get('last_mss_direction', 0))
+            features['ifvg_count'] = int(last_row.get('ifvg_count', 0))
+            
+            self.log_debug(f"Calculated {len(features)} mechanical features for {symbol} on {target_date}")
+            
+        except Exception as e:
+            self.log_error(f"Error calculating mechanical features for {symbol} on {date}: {e}")
+            features = self._get_empty_mechanical_features()
+        
+        return features
+    
+    def _get_empty_mechanical_features(self) -> Dict[str, Any]:
+        """Return empty mechanical model features when calculation fails."""
+        return {
+            'brk_dir': 0,
+            'brk_stretch_pct_atr': 0.0,
+            'brk_minutes': 0,
+            'mss_flip': 0,
+            'smt_divergence': 0,
+            'ifvg_mid': 0.0,
+            'ifvg_size_pct': 0.0,
+            'sweep_count': 0,
+            'bullish_sweep_count': 0,
+            'bearish_sweep_count': 0,
+            'max_sweep_strength': 0.0,
+            'mss_count': 0,
+            'last_mss_direction': 0,
+            'ifvg_count': 0
+        }
     
     def _create_daily_data(self, minute_df: pd.DataFrame) -> pd.DataFrame:
         """Create daily OHLCV data from minute data."""
